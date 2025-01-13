@@ -6,6 +6,7 @@ using OfficeOpenXml;
 using OfficeOpenXml.Style;
 using NickBuhro.NumToWords;
 using NickBuhro.NumToWords.Russian;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 
 
 namespace AccountManager
@@ -19,6 +20,7 @@ namespace AccountManager
         private string priceListFilePath;
         private string contractNumbersFilePath;
         private string currentProductName;
+        private string registryFilePath;
 
         public AccountManager()
         {
@@ -34,8 +36,9 @@ namespace AccountManager
             button6.Click += button6_Click;
             button10.Click += button10_Click;
             dataGridView1.CellMouseClick += dataGridView1_CellMouseClick;
+            button11.Click += button11_Click;
+            button12.Click += button12_Click;
         }
-
 
 
         private void UpdateAccountDetails()
@@ -290,13 +293,14 @@ namespace AccountManager
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
                 Filter = "Excel Files|*.xlsx",
-                Title = "Выберите файл расценок"
+                Title = "Выберите файл ставок"
             };
 
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
                 priceListFilePath = openFileDialog.FileName;
-                label4.Text = "Статус: Подключено";
+                string fileName = Path.GetFileName(priceListFilePath);
+                label4.Text = $"Статус: Подключено ({fileName})";
             }
         }
 
@@ -320,7 +324,8 @@ namespace AccountManager
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
                     contractNumbersFilePath = openFileDialog.FileName;
-                    label9.Text = "Статус: Подключено";
+                    string fileName = Path.GetFileName(contractNumbersFilePath);
+                    label9.Text = $"Статус: Подключено ({fileName})";
                 }
             }
             catch (Exception ex)
@@ -366,19 +371,113 @@ namespace AccountManager
 
                     for (int row = startRow; row <= endRow; row++)
                     {
-                        // Читаем адрес из колонки D
-                        string cellAddress = priceSheet.Cells[row, 4]?.Text?.Trim(); // Колонка D
+                        string cellAddress = priceSheet.Cells[row, 4]?.Text?.Trim();
                         if (string.Equals(cellAddress, address, StringComparison.OrdinalIgnoreCase))
                         {
-                            // Читаем цену из колонки E
-                            string priceText = priceSheet.Cells[row, 5]?.Text?.Trim(); // Колонка E
-                            if (double.TryParse(priceText, out double price))
+                            string priceWithoutGlueText = priceSheet.Cells[row, 5]?.Text?.Trim();
+                            string priceWithGlueText = priceSheet.Cells[row, 6]?.Text?.Trim();
+
+                            double priceWithoutGlue = double.TryParse(priceWithoutGlueText, out var tempWithoutGlue) ? tempWithoutGlue : 0;
+                            double priceWithGlue = double.TryParse(priceWithGlueText, out var tempWithGlue) ? tempWithGlue : 0;
+
+                            if (priceWithoutGlue > 0 && priceWithGlue > 0)
                             {
-                                return price;
+                                using (Form dialog = new Form())
+                                {
+                                    dialog.Text = "Выбор ставки";
+                                    dialog.Padding = new Padding(10);
+                                    dialog.StartPosition = FormStartPosition.CenterParent;
+                                    dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                                    dialog.AutoSize = true;
+
+                                    // Панель основного содержимого
+                                    TableLayoutPanel contentPanel = new TableLayoutPanel
+                                    {
+                                        AutoSize = true,
+                                        ColumnCount = 1,
+                                        Dock = DockStyle.Fill,
+                                        Padding = new Padding(10)
+                                    };
+
+                                    // Текстовая метка
+                                    Label label = new Label
+                                    {
+                                        Text = $"Адрес \"{address}\" имеет две ставки:\nБез клея: {priceWithoutGlue}\nС клеем: {priceWithGlue}\nВыберите нужную.",
+                                        AutoSize = true,
+                                        MaximumSize = new Size(600, 0),
+                                        Font = new Font("Arial", 10),
+                                        Dock = DockStyle.Top
+                                    };
+                                    contentPanel.Controls.Add(label);
+
+                                    // Панель для кнопок
+                                    FlowLayoutPanel buttonPanel = new FlowLayoutPanel
+                                    {
+                                        FlowDirection = FlowDirection.LeftToRight,
+                                        AutoSize = true,
+                                        Dock = DockStyle.Top,
+                                        Padding = new Padding(0, 10, 0, 0)
+                                    };
+
+                                    // Кнопка "Без клея"
+                                    Button buttonWithoutGlue = new Button
+                                    {
+                                        Text = $"Без клея ({priceWithoutGlue})",
+                                        AutoSize = true,
+                                        Padding = new Padding(10)
+                                    };
+                                    buttonWithoutGlue.Click += (s, e) =>
+                                    {
+                                        dialog.DialogResult = DialogResult.Yes;
+                                        dialog.Close();
+                                    };
+
+                                    // Кнопка "С клеем"
+                                    Button buttonWithGlue = new Button
+                                    {
+                                        Text = $"С клеем ({priceWithGlue})",
+                                        AutoSize = true,
+                                        Padding = new Padding(10)
+                                    };
+                                    buttonWithGlue.Click += (s, e) =>
+                                    {
+                                        dialog.DialogResult = DialogResult.No;
+                                        dialog.Close();
+                                    };
+
+                                    buttonPanel.Controls.Add(buttonWithoutGlue);
+                                    buttonPanel.Controls.Add(buttonWithGlue);
+
+                                    contentPanel.Controls.Add(buttonPanel);
+                                    dialog.Controls.Add(contentPanel);
+
+                                    DialogResult result = dialog.ShowDialog();
+
+                                    if (result == DialogResult.Yes)
+                                    {
+                                        return priceWithoutGlue;
+                                    }
+                                    else if (result == DialogResult.No)
+                                    {
+                                        return priceWithGlue;
+                                    }
+                                    else
+                                    {
+                                        throw new Exception("Пользователь не выбрал ставку.");
+                                    }
+                                }
+                            }
+                            else if (priceWithoutGlue > 0)
+                            {
+                                return priceWithoutGlue;
+                            }
+                            else if (priceWithGlue > 0)
+                            {
+                                return priceWithGlue;
                             }
                             else
                             {
-                                throw new Exception($"Неверный формат цены в строке {row} для адреса \"{address}\".");
+                                throw new Exception($"Неверный формат цен для адреса \"{address}\" в строке {row}.");
                             }
                         }
                     }
@@ -388,10 +487,12 @@ namespace AccountManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка в поиске цены: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return 0.0; // Возвращаем 0, если произошла ошибка
+                MessageBox.Show(ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 0;
             }
         }
+
+
 
         private string FindAbbreviationInPriceList(string address)
         {
@@ -484,6 +585,9 @@ namespace AccountManager
             }
         }
 
+
+
+
         private string GetFootingFromTable(string igk, string productName)
         {
 
@@ -512,7 +616,7 @@ namespace AccountManager
                 }
             }
 
-            throw new Exception($"Не удалось найти строчку с IGK '{igk}' и названием продукта '{productName}'.");
+            throw new Exception($"Не удалось найти строчку с ИГК '{igk}' и названием продукта '{productName}'.");
         }
 
 
@@ -543,6 +647,7 @@ namespace AccountManager
             {
                 string accnum = textBox1.Text;
                 string accdata = textBox2.Text;
+
 
                 if (dataGridView4.Rows.Count == 0)
                 {
@@ -605,6 +710,7 @@ namespace AccountManager
 
                     int currentRow = 13;
                     double totalSum = 0;
+                    string currentFooting = GetFootingFromTable(null, currentProductName);
 
                     foreach (DataGridViewRow gridRow in dataGridView4.Rows)
                     {
@@ -617,7 +723,6 @@ namespace AccountManager
                             string датаОтгрузки = gridRow.Cells[1].Value.ToString();
                             int количество = Convert.ToInt32(gridRow.Cells[3].Value);
                             string сокращениеПункта = FindAbbreviationInPriceList(пунктРазгрузки);
-                            double цена = FindPriceInPriceList(пунктРазгрузки);
 
                             // Проверяем наличие ИГК
                             string игк = FindIGKInPriceList(пунктРазгрузки);
@@ -627,6 +732,7 @@ namespace AccountManager
                                 continue; // Пропускаем строки с ИГК
                             }
 
+                            double цена = FindPriceInPriceList(пунктРазгрузки);
                             double сумма = количество * цена;
                             totalSum += сумма;
 
@@ -660,8 +766,14 @@ namespace AccountManager
                             MessageBox.Show($"Ошибка при обработке строки: {exRow.Message}", "Ошибка строки",
                                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
+
                     }
 
+                    // Добавление записи в реестр (если включено)
+                    if (checkBox1.Checked) // Проверяем, включен ли CheckBox1
+                    {
+                        FillRegistry(currentProductName, accnum, accdata, totalSum, currentFooting);
+                    }
                     // Итоговые строки
                     sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
                     sheet.Cells[currentRow, 6, currentRow, 7].Value = "Итого:";
@@ -762,7 +874,7 @@ namespace AccountManager
                         // Вывод информации об исключенных адресах
                         if (excludedOrders.Count > 0)
                         {
-                            string excludedInfo = "Следующие адреса были исключены из счета:\n";
+                            string excludedInfo = "Следующие адреса были исключены из основного счета из-за наличия ИГК, для них будет создан отдельный счет:\n";
                             foreach (var row in excludedOrders)
                             {
                                 string пунктРазгрузки = row.Cells[2].Value.ToString();
@@ -805,54 +917,64 @@ namespace AccountManager
                     string currentFooting = GetFootingFromTable(currentIGK, currentProductName);
 
 
+
                     // Показ окна для изменения номера и даты
                     using (Form dialog = new Form())
                     {
-                        dialog.Width = 900;
-                        dialog.Height = 300;
+                        dialog.AutoSize = true;
+                        dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
                         dialog.Text = "Обработка заказа с ИГК";
+                        dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                        dialog.StartPosition = FormStartPosition.CenterScreen;
+
+                        // Основной контейнер
+                        TableLayoutPanel layoutPanel = new TableLayoutPanel
+                        {
+                            Dock = DockStyle.Fill,
+                            AutoSize = true,
+                            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                            ColumnCount = 2,
+                            Padding = new Padding(10)
+                        };
+                        layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                        layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
                         // Метка с информацией об обрабатываемом заказе
                         Label labelOrderInfo = new Label
                         {
                             Text = $"Перевозчик: {currentProductName}\nАдрес: {address}\nДата заказа: {date}\nКоличество рейсов: {quantity}",
-                            Left = 10,
-                            Top = 10,
-                            Width = 850, // Ширина окна
-                            Height = 80, // Высота под 4 строки текста
-                            Font = new Font("Arial", 12, FontStyle.Bold)
+                            Font = new Font("Arial", 12, FontStyle.Bold),
+                            Dock = DockStyle.Fill,
+                            AutoSize = true,
+                            TextAlign = ContentAlignment.MiddleLeft
                         };
 
                         // Метка и TextBox для нового номера
                         Label labelNumber = new Label
                         {
                             Text = "Счет №:",
-                            Left = 10,
-                            Top = 100,
-                            Width = 150,
-                            Font = new Font("Arial", 10)
+                            Font = new Font("Arial", 10),
+                            TextAlign = ContentAlignment.MiddleLeft,
+                            Anchor = AnchorStyles.Left
                         };
                         TextBox textBoxNumber = new TextBox
                         {
-                            Left = 180,
-                            Top = 100,
-                            Width = 225
+                            Width = 225,
+                            Anchor = AnchorStyles.Left
                         };
 
                         // Метка и TextBox для новой даты
                         Label labelDate = new Label
                         {
                             Text = "От:",
-                            Left = 10,
-                            Top = 160,
-                            Width = 150,
-                            Font = new Font("Arial", 10)
+                            Font = new Font("Arial", 10),
+                            TextAlign = ContentAlignment.MiddleLeft,
+                            Anchor = AnchorStyles.Left
                         };
                         TextBox textBoxDate = new TextBox
                         {
-                            Left = 180,
-                            Top = 160,
-                            Width = 225
+                            Width = 225,
+                            Anchor = AnchorStyles.Left
                         };
 
                         // Кнопка "OK"
@@ -860,22 +982,27 @@ namespace AccountManager
                         {
                             Text = "OK",
                             DialogResult = DialogResult.OK,
-                            Left = 180,
-                            Top = 220,
-                            Width = 120,
-                            Height = 40,
-                            Font = new Font("Arial", 10, FontStyle.Bold)
+                            Font = new Font("Arial", 10, FontStyle.Bold),
+                            AutoSize = true,
+                            Anchor = AnchorStyles.None
                         };
 
-                        // Добавление элементов в диалог
-                        dialog.Controls.Add(labelOrderInfo);
-                        dialog.Controls.Add(labelNumber);
-                        dialog.Controls.Add(textBoxNumber);
-                        dialog.Controls.Add(labelDate);
-                        dialog.Controls.Add(textBoxDate);
-                        dialog.Controls.Add(buttonOk);
+                        // Добавление элементов в таблицу
+                        layoutPanel.Controls.Add(labelOrderInfo, 0, 0);
+                        layoutPanel.SetColumnSpan(labelOrderInfo, 2); // Распространение на 2 столбца
 
-                        // Установка кнопки "OK" как AcceptButton
+                        layoutPanel.Controls.Add(labelNumber, 0, 1);
+                        layoutPanel.Controls.Add(textBoxNumber, 1, 1);
+
+                        layoutPanel.Controls.Add(labelDate, 0, 2);
+                        layoutPanel.Controls.Add(textBoxDate, 1, 2);
+
+                        layoutPanel.Controls.Add(buttonOk, 0, 3);
+                        layoutPanel.SetColumnSpan(buttonOk, 2); // Распространение кнопки на 2 столбца
+                        layoutPanel.SetCellPosition(buttonOk, new TableLayoutPanelCellPosition(0, 3)); // Центрирование кнопки
+
+                        dialog.Controls.Add(layoutPanel);
+
                         dialog.AcceptButton = buttonOk;
 
 
@@ -946,6 +1073,12 @@ namespace AccountManager
 
                                     double сумма = quantity * цена;
                                     totalSum += сумма;
+
+                                    // Добавление записи в реестр (если включено)
+                                    if (checkBox1.Checked) // Проверяем, включен ли CheckBox1
+                                    {
+                                        FillRegistry(currentProductName, newNumber, newDate, totalSum, currentFooting);
+                                    }
 
                                     // Заполняем строку
                                     sheet.Cells[IGKcurrentRow, 1].Value = 1;
@@ -1091,7 +1224,6 @@ namespace AccountManager
                                 }
                             }
 
-                            // Удаляем временный файл
                             if (File.Exists(tempFilePath))
                             {
                                 File.Delete(tempFilePath);
@@ -1099,7 +1231,6 @@ namespace AccountManager
                         }
                     }
 
-                    // Удаляем текущий элемент из списка
                     excludedOrders.RemoveAt(0);
                 }
             }
@@ -1113,29 +1244,127 @@ namespace AccountManager
 
         }
 
-        private void button4_Click(object sender, EventArgs e)
+        private void button11_Click(object sender, EventArgs e)
         {
-            // Создание окна с информацией
-            Form aboutDialog = new Form
+            OpenFileDialog openFileDialog = new OpenFileDialog
             {
-                Width = 480,
-                Height = 350,
-                Text = "О программе",
-                FormBorderStyle = FormBorderStyle.FixedDialog, // Фиксированный размер окна
-                MaximizeBox = false, // Убираем кнопку развёртывания
-                MinimizeBox = false, // Убираем кнопку свёртывания
-                StartPosition = FormStartPosition.CenterScreen // Центрируем окно на экране
+                Filter = "Excel Files|*.xlsx",
+                Title = "Выберите файл таблицы реестра"
             };
 
-            // Текст с информацией
-            Label aboutText = new Label
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
-                Left = 10,
-                Top = 10,
-                Width = 360,
-                Height = 300,
-                Text = "Создатель счетов\n" +
-                        "Версия: 1.0\n" +
+                registryFilePath = openFileDialog.FileName;
+                label11.Text = $"Статус: Подключено ({Path.GetFileName(registryFilePath)})";
+            }
+        }
+
+        private void button12_Click(object sender, EventArgs e)
+        {
+            registryFilePath = null;
+            label11.Text = "Статус: ";
+        }
+
+        private void FillRegistry(string currentProductName, string accnum, string accdata, double totalsum, string currentFooting)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(registryFilePath))
+                {
+                    throw new Exception("Файл реестра не выбран. Укажите его с помощью соответствующей кнопки.");
+                }
+
+                using (ExcelPackage package = new ExcelPackage(new FileInfo(registryFilePath)))
+                {
+                    var sheet = package.Workbook.Worksheets.FirstOrDefault();
+                    if (sheet == null)
+                    {
+                        sheet = package.Workbook.Worksheets.Add("Реестр");
+                    }
+
+                    // Проверка и добавление заголовков
+                    if (string.IsNullOrWhiteSpace(sheet.Cells[3, 1]?.Text)) // Проверяем ячейку А3
+                    {
+                        sheet.Cells[3, 1].Value = "№";
+                        sheet.Cells[3, 2].Value = "Наименование контрагента";
+                        sheet.Cells[3, 3].Value = "Номер документа";
+                        sheet.Cells[3, 4].Value = "Сумма";
+                        sheet.Cells[3, 5].Value = "Общая сумма по получателю";
+                        sheet.Cells[3, 6].Value = "Наименование";
+                        sheet.Cells[3, 7].Value = "№ договора";
+
+                        // Применяем стиль для заголовков
+                        using (var range = sheet.Cells[3, 1, 3, 7])
+                        {
+                            range.Style.Font.Bold = true;
+                            range.Style.Font.Name = "Times New Roman";
+                            range.Style.Font.Size = 11;
+                            range.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                            range.Style.WrapText = true;
+                            range.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin); // Границы вокруг ячейки
+                        }
+                    }
+
+                    // Поиск последней заполненной строки
+                    int startRow = 4; // Данные начинаются с 4-й строки
+                    int currentRow = startRow;
+                    while (!string.IsNullOrWhiteSpace(sheet.Cells[currentRow, 1]?.Text) ||
+                           !string.IsNullOrWhiteSpace(sheet.Cells[currentRow, 2]?.Text))
+                    {
+                        currentRow++;
+                    }
+
+                    // Заполнение новой строки
+                    sheet.Cells[currentRow, 1].Value = currentRow - startRow + 1; // Номер строки
+                    sheet.Cells[currentRow, 2].Value = currentProductName;
+                    sheet.Cells[currentRow, 3].Value = $"№ {accnum} от {accdata}";
+                    sheet.Cells[currentRow, 4].Value = totalsum;
+                    sheet.Cells[currentRow, 5].Value = totalsum;
+                    sheet.Cells[currentRow, 6].Value = "перевозка гб 4.3";
+                    sheet.Cells[currentRow, 7].Value = currentFooting;
+
+                    // Применяем стиль для строки данных
+                    using (var range = sheet.Cells[currentRow, 1, currentRow, 7])
+                    {
+                        range.Style.Font.Name = "Times New Roman";
+                        range.Style.Font.Size = 11;
+                        range.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin);
+                        range.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin);
+                        range.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        range.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin); // Границы вокруг ячейки
+                    }
+
+                    // Сохраняем изменения в файл
+                    package.Save();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при заполнении реестра: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            Form aboutDialog = new Form
+            {
+                AutoSize = true, // Автоматическое изменение размера окна
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Text = "О программе",
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                StartPosition = FormStartPosition.CenterScreen
+            };
+
+            // Текстовое описание программы
+            Label descriptionLabel = new Label
+            {
+                AutoSize = true,
+                Text = "Rcmu Account Manager\n" +
+                        "Версия: 1.1 (unlimited)\n" +
                         "Разработчик: Дмитрий Кремов, tg: @ReCream, github: recreamu\n" +
                         "\n" +
                         "Данное приложение позволяет пользователю создавать таблицу счетов\n" +
@@ -1146,33 +1375,44 @@ namespace AccountManager
                         "EPPlus(7.5.2) и NickVuhro.NumToWords(1.1.3), а так же ChatGPT.\n" +
                         "Исходный код есть на моем GitHub, желающим его изучить желаю удачи.\n" +
                         "\n" +
-                        "Программа разрабатывалась исключительно в образовательных целях.\n" +
-                        "Коммерческое использование не предусмотрено разработчиком.",
-                AutoSize = true,
-                TextAlign = ContentAlignment.TopLeft
+                        "Авторские права защищены GNU GENERAL PUBLIC LICENSE v3 © 2025",
+                Location = new Point(20, 20)
             };
 
             // Кнопка закрытия
             Button closeButton = new Button
             {
                 Text = "Закрыть",
-                Width = 80,
-                Height = 30,
-                Top = 260, // Высота кнопки от верхнего края окна
-                Left = (aboutDialog.ClientSize.Width - 80) / 2, // Вычисление центра окна
-                DialogResult = DialogResult.OK
+                AutoSize = true,
+                Anchor = AnchorStyles.None
+            };
+            closeButton.Click += (s, args) => aboutDialog.Close();
+
+            // Панель размещения с вертикальным выравниванием
+            FlowLayoutPanel layoutPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Padding = new Padding(20, 20, 20, 20), // Отступы вокруг содержимого
+                BorderStyle = BorderStyle.None
             };
 
-            // Добавление элементов в форму
-            aboutDialog.Controls.Add(aboutText);
-            aboutDialog.Controls.Add(closeButton);
+            // Выравнивание по центру
+            layoutPanel.Controls.Add(descriptionLabel);
+            layoutPanel.SetFlowBreak(descriptionLabel, true); // Прерываем поток после текста
 
-            // Установка кнопки закрытия по умолчанию
-            aboutDialog.AcceptButton = closeButton;
+            layoutPanel.Controls.Add(closeButton);
+            closeButton.Margin = new Padding(0, 10, 0, 0); // Небольшой отступ сверху
 
-            // Показ окна
+            aboutDialog.Controls.Add(layoutPanel);
+
             aboutDialog.ShowDialog();
         }
+
+
     }
 }
 
