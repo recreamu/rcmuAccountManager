@@ -57,6 +57,7 @@
             label12 = new Label();
             button12 = new Button();
             checkBox1 = new CheckBox();
+            monthCalendar1 = new MonthCalendar();
             ((System.ComponentModel.ISupportInitialize)dataGridView1).BeginInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView4).BeginInit();
             SuspendLayout();
@@ -81,7 +82,7 @@
             // 
             // button3
             // 
-            button3.Location = new Point(319, 500);
+            button3.Location = new Point(319, 569);
             button3.Name = "button3";
             button3.Size = new Size(95, 38);
             button3.TabIndex = 6;
@@ -90,7 +91,7 @@
             // 
             // textBox1
             // 
-            textBox1.Location = new Point(1089, 57);
+            textBox1.Location = new Point(872, 64);
             textBox1.Name = "textBox1";
             textBox1.Size = new Size(100, 23);
             textBox1.TabIndex = 8;
@@ -116,7 +117,7 @@
             // label3
             // 
             label3.AutoSize = true;
-            label3.Location = new Point(134, 482);
+            label3.Location = new Point(134, 551);
             label3.Name = "label3";
             label3.Size = new Size(45, 15);
             label3.TabIndex = 11;
@@ -125,7 +126,7 @@
             // label5
             // 
             label5.AutoSize = true;
-            label5.Location = new Point(1118, 39);
+            label5.Location = new Point(901, 46);
             label5.Name = "label5";
             label5.Size = new Size(54, 15);
             label5.TabIndex = 13;
@@ -134,7 +135,7 @@
             // label6
             // 
             label6.AutoSize = true;
-            label6.Location = new Point(1129, 101);
+            label6.Location = new Point(912, 108);
             label6.Name = "label6";
             label6.Size = new Size(28, 15);
             label6.TabIndex = 14;
@@ -142,16 +143,16 @@
             // 
             // textBox2
             // 
-            textBox2.Location = new Point(1089, 119);
+            textBox2.Location = new Point(872, 126);
             textBox2.Name = "textBox2";
             textBox2.Size = new Size(100, 23);
             textBox2.TabIndex = 15;
             // 
             // button5
             // 
-            button5.Location = new Point(1002, 594);
+            button5.Location = new Point(999, 619);
             button5.Name = "button5";
-            button5.Size = new Size(198, 41);
+            button5.Size = new Size(198, 38);
             button5.TabIndex = 16;
             button5.Text = "Сгенерировать счет";
             button5.UseVisualStyleBackColor = true;
@@ -176,7 +177,7 @@
             // 
             // button9
             // 
-            button9.Location = new Point(30, 500);
+            button9.Location = new Point(30, 569);
             button9.Name = "button9";
             button9.Size = new Size(258, 38);
             button9.TabIndex = 21;
@@ -203,15 +204,15 @@
             // dataGridView4
             // 
             dataGridView4.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dataGridView4.Location = new Point(790, 204);
+            dataGridView4.Location = new Point(790, 245);
             dataGridView4.Name = "dataGridView4";
-            dataGridView4.Size = new Size(665, 373);
+            dataGridView4.Size = new Size(645, 356);
             dataGridView4.TabIndex = 25;
             // 
             // label4
             // 
             label4.AutoSize = true;
-            label4.Location = new Point(434, 512);
+            label4.Location = new Point(434, 581);
             label4.Name = "label4";
             label4.Size = new Size(46, 15);
             label4.TabIndex = 27;
@@ -220,7 +221,7 @@
             // label8
             // 
             label8.AutoSize = true;
-            label8.Location = new Point(928, 186);
+            label8.Location = new Point(928, 227);
             label8.Name = "label8";
             label8.Size = new Size(156, 15);
             label8.TabIndex = 28;
@@ -229,7 +230,7 @@
             // label9
             // 
             label9.AutoSize = true;
-            label9.Location = new Point(434, 575);
+            label9.Location = new Point(434, 640);
             label9.Name = "label9";
             label9.Size = new Size(49, 15);
             label9.TabIndex = 32;
@@ -237,7 +238,7 @@
             // 
             // button6
             // 
-            button6.Location = new Point(30, 563);
+            button6.Location = new Point(30, 628);
             button6.Name = "button6";
             button6.Size = new Size(258, 38);
             button6.TabIndex = 31;
@@ -247,7 +248,7 @@
             // label10
             // 
             label10.AutoSize = true;
-            label10.Location = new Point(104, 545);
+            label10.Location = new Point(104, 610);
             label10.Name = "label10";
             label10.Size = new Size(112, 15);
             label10.TabIndex = 30;
@@ -255,7 +256,7 @@
             // 
             // button10
             // 
-            button10.Location = new Point(319, 563);
+            button10.Location = new Point(319, 628);
             button10.Name = "button10";
             button10.Size = new Size(95, 38);
             button10.TabIndex = 29;
@@ -275,7 +276,7 @@
             // label11
             // 
             label11.AutoSize = true;
-            label11.Location = new Point(434, 637);
+            label11.Location = new Point(434, 518);
             label11.Name = "label11";
             label11.Size = new Size(49, 15);
             label11.TabIndex = 37;
@@ -283,7 +284,7 @@
             // 
             // button11
             // 
-            button11.Location = new Point(30, 625);
+            button11.Location = new Point(30, 506);
             button11.Name = "button11";
             button11.Size = new Size(258, 38);
             button11.TabIndex = 36;
@@ -293,7 +294,7 @@
             // label12
             // 
             label12.AutoSize = true;
-            label12.Location = new Point(119, 607);
+            label12.Location = new Point(119, 488);
             label12.Name = "label12";
             label12.Size = new Size(82, 15);
             label12.TabIndex = 35;
@@ -301,7 +302,7 @@
             // 
             // button12
             // 
-            button12.Location = new Point(319, 625);
+            button12.Location = new Point(319, 506);
             button12.Name = "button12";
             button12.Size = new Size(95, 38);
             button12.TabIndex = 34;
@@ -313,18 +314,26 @@
             checkBox1.AutoSize = true;
             checkBox1.Checked = true;
             checkBox1.CheckState = CheckState.Checked;
-            checkBox1.Location = new Point(1215, 606);
+            checkBox1.Location = new Point(1203, 630);
             checkBox1.Name = "checkBox1";
             checkBox1.Size = new Size(125, 19);
             checkBox1.TabIndex = 38;
             checkBox1.Text = "Заполнить реестр";
             checkBox1.UseVisualStyleBackColor = true;
             // 
+            // monthCalendar1
+            // 
+            monthCalendar1.CalendarDimensions = new Size(2, 1);
+            monthCalendar1.Location = new Point(1017, 32);
+            monthCalendar1.Name = "monthCalendar1";
+            monthCalendar1.TabIndex = 39;
+            // 
             // AccountManager
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1468, 683);
+            Controls.Add(monthCalendar1);
             Controls.Add(checkBox1);
             Controls.Add(label11);
             Controls.Add(button11);
@@ -355,7 +364,7 @@
             Controls.Add(button1);
             Controls.Add(dataGridView1);
             Name = "AccountManager";
-            Text = "Rcmu Account Manager v.1.1";
+            Text = "Rcmu Account Manager v.1.2";
             ((System.ComponentModel.ISupportInitialize)dataGridView1).EndInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView4).EndInit();
             ResumeLayout(false);
@@ -393,5 +402,6 @@
         private Label label12;
         private Button button12;
         private CheckBox checkBox1;
+        private MonthCalendar monthCalendar1;
     }
 }

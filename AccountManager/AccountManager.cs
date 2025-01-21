@@ -25,6 +25,7 @@ namespace AccountManager
         public AccountManager()
         {
             InitializeComponent();
+            LoadLastFilePaths();
 
             button7.Click += button7_Click;
             button1.Click += button1_Click;
@@ -38,6 +39,7 @@ namespace AccountManager
             dataGridView1.CellMouseClick += dataGridView1_CellMouseClick;
             button11.Click += button11_Click;
             button12.Click += button12_Click;
+            monthCalendar1.DateSelected += monthCalendar1_DateSelected;
         }
 
 
@@ -46,6 +48,14 @@ namespace AccountManager
             accnum = textBox1.Text;
             accdata = textBox2.Text;
         }
+
+        private void monthCalendar1_DateSelected(object sender, DateRangeEventArgs e)
+        {
+            // Устанавливаем выбранную дату в textBox2
+            textBox2.Text = e.Start.ToString("dd.MM.yyyy");
+        }
+
+
         public void LoadExcelToDataGridView(string filePath, DataGridView targetGrid)
         {
             using (ExcelPackage package = new ExcelPackage(new FileInfo(filePath)))
@@ -81,6 +91,7 @@ namespace AccountManager
 
         private void dataGridView1_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
+
             if (e.RowIndex < 3 || e.RowIndex == dataGridView1.Rows.Count - 1) // Игнорируем строки 1-3 и последнюю строку
                 return;
 
@@ -147,6 +158,12 @@ namespace AccountManager
                 {
                     string shippingDate = dataGridView1.Rows[row].Cells[4].Value?.ToString();  // Дата отгрузки
                     string unloadPoint = dataGridView1.Rows[row].Cells[13].Value?.ToString(); // Пункт разгрузки
+                    string routeValueText = dataGridView1.Rows[row].Cells[14].Value?.ToString(); // Рейсы
+
+                    if (routeValueText == "")
+                    {
+                        continue;
+                    }
 
                     // Подсчёт совпадений unloadPoint внутри зоны
                     int matchingRowCount = 1; // Текущая строка уже считается
@@ -156,10 +173,12 @@ namespace AccountManager
                     {
                         string checkUnloadPoint = dataGridView1.Rows[checkRow].Cells[13].Value?.ToString();
                         string checkShippingDate = dataGridView1.Rows[checkRow].Cells[4].Value?.ToString();
+                        string checkFlightValueText = dataGridView1.Rows[checkRow].Cells[14].Value?.ToString();
 
                         if (!string.IsNullOrWhiteSpace(checkUnloadPoint) &&
                             checkUnloadPoint == unloadPoint &&
-                            !visitedRows.Contains(checkRow))
+                            !visitedRows.Contains(checkRow) &&
+                            checkFlightValueText == "1")
                         {
                             matchingRowCount++;
                             shippingDates.Add(checkShippingDate);
@@ -181,7 +200,10 @@ namespace AccountManager
                         Number = tempData.Count + 1, // Нумерация с 1
                         ShippingDate = dateRange,
                         UnloadPoint = unloadPoint,
-                        Quantity = matchingRowCount
+                        Quantity = matchingRowCount,
+                        Price = FindPriceInPriceList(unloadPoint),
+                        Abbreviation = FindAbbreviationInPriceList(unloadPoint)
+
                     });
                 }
             }
@@ -202,20 +224,104 @@ namespace AccountManager
             tempTable.Columns.Add("Дата отгрузки");
             tempTable.Columns.Add("Пункт разгрузки");
             tempTable.Columns.Add("Количество");
+            tempTable.Columns.Add("Ставка");
+            tempTable.Columns.Add("Населенный пункт");
 
             foreach (var entry in tempData)
             {
-                tempTable.Rows.Add(entry.Number, entry.ShippingDate, entry.UnloadPoint, entry.Quantity);
+                tempTable.Rows.Add(entry.Number, entry.ShippingDate, entry.UnloadPoint, entry.Quantity, entry.Price, entry.Abbreviation);
             }
 
             dataGridView4.DataSource = tempTable;
 
-            // Настраиваем ширину колонок в dataGridView4
+            // Создаем новую таблицу с измененным порядком колонок
+            var reorderedTable = new DataTable();
+            reorderedTable.Columns.Add("Номер");
+            reorderedTable.Columns.Add("Дата отгрузки");
+            reorderedTable.Columns.Add("Населенный пункт");
+            reorderedTable.Columns.Add("Количество");
+            reorderedTable.Columns.Add("Ставка");
+
+            // Перенос данных из старой таблицы в новом порядке
+            foreach (DataRow row in tempTable.Rows)
+            {
+                reorderedTable.Rows.Add(
+                    row["Номер"],
+                    row["Дата отгрузки"],
+                    row["Населенный пункт"],
+                    row["Количество"],
+                    row["Ставка"]
+                );
+            }
+
+            // Создаем новую таблицу для объединенных данных
+            var consolidatedTable = new DataTable();
+            consolidatedTable.Columns.Add("Номер"); // Генерация новых номеров
+            consolidatedTable.Columns.Add("Дата отгрузки");
+            consolidatedTable.Columns.Add("Населенный пункт");
+            consolidatedTable.Columns.Add("Количество");
+            consolidatedTable.Columns.Add("Ставка");
+
+            // Группируем данные по населённому пункту и ставке
+            var groupedData = reorderedTable.AsEnumerable()
+                .GroupBy(row => new
+                {
+                    Settlement = row["Населенный пункт"].ToString(),
+                    Rate = row["Ставка"].ToString()
+                });
+
+            // Обрабатываем каждую группу
+            int newIndex = 1;
+            foreach (var group in groupedData)
+            {
+                string settlement = group.Key.Settlement;
+                string rate = group.Key.Rate;
+
+                // Сбор всех дат, включая диапазоны
+                var dates = new List<DateTime>();
+                foreach (var row in group)
+                {
+                    string dateText = row["Дата отгрузки"].ToString();
+                    if (dateText.Contains(" - ")) // Диапазон дат
+                    {
+                        var dateParts = dateText.Split('-')
+                            .Select(d => DateTime.Parse(d.Trim()))
+                            .ToList();
+
+                        dates.AddRange(dateParts); // Добавляем обе границы диапазона
+                    }
+                    else // Одиночная дата
+                    {
+                        dates.Add(DateTime.Parse(dateText));
+                    }
+                }
+
+                // Определяем общий диапазон дат
+                string dateRange = dates.Count > 1
+                    ? $"{dates.Min():dd.MM.yyyy} - {dates.Max():dd.MM.yyyy}"
+                    : dates.First().ToString("dd.MM.yyyy");
+
+                // Суммируем количество
+                int totalQuantity = group.Sum(row => int.Parse(row["Количество"].ToString()));
+
+                // Добавляем строку в новую таблицу
+                consolidatedTable.Rows.Add(newIndex++, dateRange, settlement, totalQuantity, rate);
+            }
+
+            // Заменяем источник данных для dataGridView4
+            dataGridView4.DataSource = consolidatedTable;
+
+            // Настраиваем ширину колонок
             dataGridView4.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-            dataGridView4.Columns[0].Width = 50; // Номер
-            dataGridView4.Columns[1].Width = 150; // Дата отгрузки
-            dataGridView4.Columns[2].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; // Пункт разгрузки
-            dataGridView4.Columns[3].Width = 80; // Количество
+            dataGridView4.Columns["Номер"].Width = 50; // Номер
+            dataGridView4.Columns["Дата отгрузки"].Width = 150; // Дата отгрузки
+            dataGridView4.Columns["Населенный пункт"].Width = 300; // Населенный пункт
+            dataGridView4.Columns["Количество"].Width = 80; // Количество
+            dataGridView4.Columns["Ставка"].Width = 80; // Ставка
+
+
+
+
         }
 
 
@@ -288,6 +394,51 @@ namespace AccountManager
             label7.Text = "Выбранная шапка: "; // Обновляем текст метки
         }
 
+
+        private void UpdateLastFilePaths()
+        {
+            try
+            {
+                string[] paths = new string[2];
+                paths[0] = priceListFilePath ?? string.Empty; // Первая строка - путь к файлу ставок
+                paths[1] = contractNumbersFilePath ?? string.Empty; // Вторая строка - путь к файлу договоров
+
+                File.WriteAllLines("lastFilePaths.txt", paths); // Записываем пути в файл
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при обновлении файла с последними путями: {ex.Message}",
+                                "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadLastFilePaths()
+        {
+            // Проверяем, существует ли файл
+            if (File.Exists("lastFilePaths.txt"))
+            {
+                // Читаем строки из файла
+                var paths = File.ReadAllLines("lastFilePaths.txt");
+
+                if (paths.Length > 0 && !string.IsNullOrWhiteSpace(paths[0]))
+                {
+                    // Подгружаем путь к файлу ставок
+                    priceListFilePath = paths[0];
+                    string fileName = Path.GetFileName(priceListFilePath);
+                    label4.Text = $"Статус: Подключено ({fileName})";
+                }
+
+                if (paths.Length > 1 && !string.IsNullOrWhiteSpace(paths[1]))
+                {
+                    // Подгружаем путь к файлу с номерами договоров
+                    contractNumbersFilePath = paths[1];
+                    string fileName = Path.GetFileName(contractNumbersFilePath);
+                    label9.Text = $"Статус: Подключено ({fileName})";
+                }
+            }
+        }
+
+
         private void button9_Click(object sender, EventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
@@ -301,6 +452,7 @@ namespace AccountManager
                 priceListFilePath = openFileDialog.FileName;
                 string fileName = Path.GetFileName(priceListFilePath);
                 label4.Text = $"Статус: Подключено ({fileName})";
+                UpdateLastFilePaths();
             }
         }
 
@@ -309,6 +461,7 @@ namespace AccountManager
         {
             priceListFilePath = null; // Очищаем переменную с путем к файлу
             label4.Text = "Статус: "; // Обновляем текст метки
+            UpdateLastFilePaths();
         }
 
         private void button6_Click(object sender, EventArgs e)
@@ -326,6 +479,7 @@ namespace AccountManager
                     contractNumbersFilePath = openFileDialog.FileName;
                     string fileName = Path.GetFileName(contractNumbersFilePath);
                     label9.Text = $"Статус: Подключено ({fileName})";
+                    UpdateLastFilePaths();
                 }
             }
             catch (Exception ex)
@@ -341,6 +495,7 @@ namespace AccountManager
             {
                 contractNumbersFilePath = string.Empty;
                 label9.Text = "Статус: ";
+                UpdateLastFilePaths();
             }
             catch (Exception ex)
             {
@@ -580,7 +735,7 @@ namespace AccountManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка при поиске ИГК: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Ошибка при поиске номера договора: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return string.Empty;
             }
         }
@@ -616,7 +771,7 @@ namespace AccountManager
                 }
             }
 
-            throw new Exception($"Не удалось найти строчку с ИГК '{igk}' и названием продукта '{productName}'.");
+            throw new Exception($"Не удалось найти строчку с номером документа '{igk}' и названием продукта '{productName}'.");
         }
 
 
@@ -651,7 +806,7 @@ namespace AccountManager
 
                 if (dataGridView4.Rows.Count == 0)
                 {
-                    MessageBox.Show("Временная таблица пуста. Заполните ее данными перед созданием отчета.",
+                    MessageBox.Show("Правая таблица пуста. Заполните ее данными перед созданием отчета.",
                                     "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -677,19 +832,27 @@ namespace AccountManager
                     // Устанавливаем общий шрифт Arial
                     sheet.Cells.Style.Font.Name = "Arial";
 
-                    // Заголовок счета
-                    sheet.Cells["A8:I8"].Merge = true;
-                    sheet.Cells["A8:I8"].Value = $"СЧЕТ №{accnum} от {accdata}г";
+                    // Костыль
+                    sheet.Cells["A8:I8"].Merge = false;
+                    sheet.Cells["A8:I8"].Value = $"";
                     sheet.Cells["A8:I8"].Style.Font.Size = 14;
                     sheet.Cells["A8:I8"].Style.Font.Bold = true;
                     sheet.Cells["A8:I8"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
                     sheet.Cells["A8:I8"].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
 
-                    // Плательщик
+                    // Заголовок счета
                     sheet.Cells["A9:I9"].Merge = true;
-                    sheet.Cells["A9:I9"].Value = "Плательщик: ООО «Масикс» ИНН 6164134558";
-                    sheet.Cells["A9:I9"].Style.Font.Size = 10;
-                    sheet.Cells["A9:I9"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                    sheet.Cells["A9:I9"].Value = $"СЧЕТ № {accnum} от {accdata}г";
+                    sheet.Cells["A9:I9"].Style.Font.Size = 14;
+                    sheet.Cells["A9:I9"].Style.Font.Bold = true;
+                    sheet.Cells["A9:I9"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    sheet.Cells["A9:I9"].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+
+                    // Плательщик
+                    sheet.Cells["A10:I10"].Merge = true;
+                    sheet.Cells["A10:I10"].Value = "Плательщик: ООО «Масикс» ИНН 6164134558";
+                    sheet.Cells["A10:I10"].Style.Font.Size = 10;
+                    sheet.Cells["A10:I10"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
 
                     // Заголовки таблицы
                     string[] headers = { "№", "Наименование товара", "", "Ед. Измерения", "Количество", "Цена", "", "Сумма", "" };
@@ -742,9 +905,11 @@ namespace AccountManager
                             sheet.Cells[currentRow, 2, currentRow, 3].Merge = true;
                             sheet.Cells[currentRow, 4].Value = "рейс";
                             sheet.Cells[currentRow, 5].Value = количество;
-                            sheet.Cells[currentRow, 6].Value = $"{цена:0.00}";
+                            sheet.Cells[currentRow, 6].Value = цена;
+                            sheet.Cells[currentRow, 6].Style.Numberformat.Format = "0.00";
                             sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
-                            sheet.Cells[currentRow, 8].Value = $"{сумма:0,0.00}";
+                            sheet.Cells[currentRow, 8].Value = сумма;
+                            sheet.Cells[currentRow, 8].Style.Numberformat.Format = "#,##0.00";
                             sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
 
                             for (int col = 1; col <= 9; col++)
@@ -769,11 +934,14 @@ namespace AccountManager
 
                     }
 
+                    //int tableBorder = currentRow - 1;
+
                     // Добавление записи в реестр (если включено)
                     if (checkBox1.Checked) // Проверяем, включен ли CheckBox1
                     {
                         FillRegistry(currentProductName, accnum, accdata, totalSum, currentFooting);
                     }
+
                     // Итоговые строки
                     sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
                     sheet.Cells[currentRow, 6, currentRow, 7].Value = "Итого:";
@@ -781,7 +949,8 @@ namespace AccountManager
                     sheet.Cells[currentRow, 6, currentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
 
                     sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
-                    sheet.Cells[currentRow, 8, currentRow, 9].Value = $"{totalSum:0,0.00}";
+                    sheet.Cells[currentRow, 8, currentRow, 9].Value = totalSum;
+                    sheet.Cells[currentRow, 8, currentRow, 9].Style.Numberformat.Format = "#,##0.00";
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.Font.Size = 10;
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
@@ -804,7 +973,8 @@ namespace AccountManager
                     sheet.Cells[currentRow, 6, currentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
 
                     sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
-                    sheet.Cells[currentRow, 8, currentRow, 9].Value = $"{totalSum:0,0.00}";
+                    sheet.Cells[currentRow, 8, currentRow, 9].Value = totalSum;
+                    sheet.Cells[currentRow, 8, currentRow, 9].Style.Numberformat.Format = "#,##0.00";
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.Font.Size = 10;
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
                     sheet.Cells[currentRow, 8, currentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
@@ -870,6 +1040,7 @@ namespace AccountManager
                         int offsetRow = headerRange?.End.Row + 1 ?? 1;
                         tempSheet.Cells[tempRange.Start.Row, tempRange.Start.Column, tempRange.End.Row, tempRange.End.Column]
                             .Copy(mergedSheet.Cells[offsetRow, tempRange.Start.Column]);
+
 
                         // Вывод информации об исключенных адресах
                         if (excludedOrders.Count > 0)
@@ -1022,7 +1193,7 @@ namespace AccountManager
 
                                 // Заголовок счета
                                 sheet.Cells["A8:I8"].Merge = true;
-                                sheet.Cells["A8:I8"].Value = $"СЧЕТ №{newNumber} от {newDate}г";
+                                sheet.Cells["A8:I8"].Value = $"СЧЕТ № {newNumber} от {newDate}г";
                                 sheet.Cells["A8:I8"].Style.Font.Size = 14;
                                 sheet.Cells["A8:I8"].Style.Font.Bold = true;
                                 sheet.Cells["A8:I8"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
@@ -1364,7 +1535,7 @@ namespace AccountManager
             {
                 AutoSize = true,
                 Text = "Rcmu Account Manager\n" +
-                        "Версия: 1.1 (unlimited)\n" +
+                        "Версия: 1.2 (limited)\n" +
                         "Разработчик: Дмитрий Кремов, tg: @ReCream, github: recreamu\n" +
                         "\n" +
                         "Данное приложение позволяет пользователю создавать таблицу счетов\n" +
