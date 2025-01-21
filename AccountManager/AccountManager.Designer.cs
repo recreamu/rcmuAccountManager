@@ -58,8 +58,11 @@
             button12 = new Button();
             checkBox1 = new CheckBox();
             monthCalendar1 = new MonthCalendar();
+            dataGridView2 = new DataGridView();
+            label13 = new Label();
             ((System.ComponentModel.ISupportInitialize)dataGridView1).BeginInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView4).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)dataGridView2).BeginInit();
             SuspendLayout();
             // 
             // button1
@@ -206,7 +209,7 @@
             dataGridView4.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dataGridView4.Location = new Point(790, 245);
             dataGridView4.Name = "dataGridView4";
-            dataGridView4.Size = new Size(645, 356);
+            dataGridView4.Size = new Size(645, 171);
             dataGridView4.TabIndex = 25;
             // 
             // label4
@@ -328,11 +331,30 @@
             monthCalendar1.Name = "monthCalendar1";
             monthCalendar1.TabIndex = 39;
             // 
+            // dataGridView2
+            // 
+            dataGridView2.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            dataGridView2.Location = new Point(790, 436);
+            dataGridView2.Name = "dataGridView2";
+            dataGridView2.Size = new Size(645, 171);
+            dataGridView2.TabIndex = 40;
+            // 
+            // label13
+            // 
+            label13.AutoSize = true;
+            label13.Location = new Point(928, 418);
+            label13.Name = "label13";
+            label13.Size = new Size(170, 15);
+            label13.TabIndex = 41;
+            label13.Text = "Инфмормация для счета ИГК";
+            // 
             // AccountManager
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1468, 683);
+            Controls.Add(label13);
+            Controls.Add(dataGridView2);
             Controls.Add(monthCalendar1);
             Controls.Add(checkBox1);
             Controls.Add(label11);
@@ -367,6 +389,7 @@
             Text = "Rcmu Account Manager v.1.2";
             ((System.ComponentModel.ISupportInitialize)dataGridView1).EndInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView4).EndInit();
+            ((System.ComponentModel.ISupportInitialize)dataGridView2).EndInit();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -403,5 +426,7 @@
         private Button button12;
         private CheckBox checkBox1;
         private MonthCalendar monthCalendar1;
+        private DataGridView dataGridView2;
+        private Label label13;
     }
 }

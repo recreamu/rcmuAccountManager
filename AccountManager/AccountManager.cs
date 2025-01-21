@@ -7,6 +7,8 @@ using OfficeOpenXml.Style;
 using NickBuhro.NumToWords;
 using NickBuhro.NumToWords.Russian;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Net;
 
 
 namespace AccountManager
@@ -92,6 +94,11 @@ namespace AccountManager
         private void dataGridView1_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
 
+            dataGridView2.DataSource = null;
+            dataGridView2.Columns.Clear();
+            dataGridView2.Rows.Clear();
+
+
             if (e.RowIndex < 3 || e.RowIndex == dataGridView1.Rows.Count - 1) // Игнорируем строки 1-3 и последнюю строку
                 return;
 
@@ -101,6 +108,7 @@ namespace AccountManager
 
             // Для временной таблицы
             var tempData = new List<dynamic>();
+            var IGKEntries = new List<dynamic>();
             var visitedRows = new HashSet<int>();
 
             // Найти начало текущей зоны
@@ -159,9 +167,23 @@ namespace AccountManager
                     string shippingDate = dataGridView1.Rows[row].Cells[4].Value?.ToString();  // Дата отгрузки
                     string unloadPoint = dataGridView1.Rows[row].Cells[13].Value?.ToString(); // Пункт разгрузки
                     string routeValueText = dataGridView1.Rows[row].Cells[14].Value?.ToString(); // Рейсы
+                    string IGK = FindIGKInPriceList(unloadPoint); 
 
                     if (routeValueText == "")
                     {
+                        continue;
+                    }
+
+                    // Если есть значение IGK, адрес исключается из основной обработки
+                    if (!string.IsNullOrEmpty(IGK))
+                    {
+                        // Сохранение данных в таблицу IGK
+                        IGKEntries.Add(new
+                        {
+                            ShippingDate = shippingDate,
+                            UnloadPoint = unloadPoint,
+                            IGK = IGK
+                        });
                         continue;
                     }
 
@@ -202,8 +224,7 @@ namespace AccountManager
                         UnloadPoint = unloadPoint,
                         Quantity = matchingRowCount,
                         Price = FindPriceInPriceList(unloadPoint),
-                        Abbreviation = FindAbbreviationInPriceList(unloadPoint)
-
+                        Abbreviation = FindAbbreviationInPriceList(unloadPoint),
                     });
                 }
             }
@@ -211,9 +232,6 @@ namespace AccountManager
             // Подсчитываем общее количество строк в зоне
             orderCount = endRow - startRow + 1;
 
-            // Выводим сообщение
-            MessageBox.Show($"Выбран \"{currentProductName}\". Количество заказов: {orderCount}",
-                "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             // Обновляем label8
             label8.Text = $"Информация для счета по: {currentProductName}";
@@ -318,6 +336,64 @@ namespace AccountManager
             dataGridView4.Columns["Населенный пункт"].Width = 300; // Населенный пункт
             dataGridView4.Columns["Количество"].Width = 80; // Количество
             dataGridView4.Columns["Ставка"].Width = 80; // Ставка
+
+            if (IGKEntries.Count != 0)
+            {
+                var igkTable = new DataTable();
+                igkTable.Columns.Add("Номер");
+                igkTable.Columns.Add("Дата отгрузки");
+                igkTable.Columns.Add("Пункт разгрузки");
+                igkTable.Columns.Add("Количество");
+                igkTable.Columns.Add("Ставка");
+                igkTable.Columns.Add("ИГК");
+
+                var groupedEntries = IGKEntries
+                    .GroupBy(entry => entry.UnloadPoint) // Группируем по пункту разгрузки
+                    .Select(group => new
+                    {
+                        UnloadPoint = group.Key,
+                        MinShippingDate = group.Min(entry => entry.ShippingDate), // Минимальная дата в группе
+                        MaxShippingDate = group.Max(entry => entry.ShippingDate), // Максимальная дата в группе
+                        Count = group.Count() // Количество однотипных адресов
+                    }).ToList();
+
+                int rowNumber = 1;
+                foreach (var group in groupedEntries)
+                {
+                    // Получаем ставку по адресу
+                    var price = FindPriceInPriceList(group.UnloadPoint);
+                    var igk = FindIGKInPriceList(group.UnloadPoint);
+                    var abbreviation = FindAbbreviationInPriceList(group.UnloadPoint);
+                    string igkDate = null;
+                    if (group.MinShippingDate == group.MaxShippingDate)
+                    {
+                        igkDate = group.MinShippingDate;
+                    }
+                    else
+                    {
+                        igkDate = $"{group.MinShippingDate} - {group.MaxShippingDate}";
+                    }
+
+                    // Добавляем строку с минимальной и максимальной датой для одного адреса
+                    igkTable.Rows.Add(rowNumber++,
+                                      igkDate,
+                                      abbreviation,
+                                      group.Count,
+                                      price,
+                                      igk);
+                }
+
+                dataGridView2.DataSource = igkTable;
+
+                // Настраиваем ширину колонок
+                dataGridView2.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+                dataGridView2.Columns[0].Width = 50;  // Номер
+                dataGridView2.Columns[1].Width = 150; // Дата отгрузки
+                dataGridView2.Columns[2].Width = 300; // Пункт разгрузки
+                dataGridView2.Columns[3].Width = 80; // Количество
+                dataGridView2.Columns[4].Width = 80; // Ставка по адресу
+                dataGridView2.Columns[5].Width = 150; // IGK по адресу
+            }
 
 
 
@@ -741,6 +817,47 @@ namespace AccountManager
         }
 
 
+        private string FindAddressInPriceList(string igk)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(priceListFilePath))
+                {
+                    throw new Exception("Файл расценок не выбран. Укажите его с помощью кнопки выбора расценок.");
+                }
+
+                using (ExcelPackage package = new ExcelPackage(new FileInfo(priceListFilePath)))
+                {
+                    var priceSheet = package.Workbook.Worksheets.FirstOrDefault();
+                    if (priceSheet == null || priceSheet.Dimension == null)
+                    {
+                        throw new Exception("Файл расценок пуст или не содержит данных.");
+                    }
+
+                    int startRow = priceSheet.Dimension.Start.Row;
+                    int endRow = priceSheet.Dimension.End.Row;
+
+                    for (int row = startRow; row <= endRow; row++)
+                    {
+                        // Читаем значение ИГК из колонки G
+                        string cellIGK = priceSheet.Cells[row, 7]?.Text?.Trim(); // Колонка G
+                        if (string.Equals(cellIGK, igk, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Читаем адрес из колонки D
+                            string address = priceSheet.Cells[row, 4]?.Text?.Trim(); // Колонка D
+                            return address; // Вернуть адрес (может быть пустым)
+                        }
+                    }
+                }
+
+                throw new Exception($"ИГК \"{igk}\" не найден в файле расценок.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при поиске адреса: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return string.Empty;
+            }
+        }
 
 
         private string GetFootingFromTable(string igk, string productName)
@@ -820,8 +937,6 @@ namespace AccountManager
 
                 string tempFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp.xlsx");
 
-                // Хранение исключенных заказов
-                List<DataGridViewRow> excludedOrders = new List<DataGridViewRow>();
                 int currentOrderNumber = 1; // Нумерация заказов
 
                 // Шаг 1: Создание временного файла
@@ -885,23 +1000,13 @@ namespace AccountManager
                             string пунктРазгрузки = gridRow.Cells[2].Value.ToString();
                             string датаОтгрузки = gridRow.Cells[1].Value.ToString();
                             int количество = Convert.ToInt32(gridRow.Cells[3].Value);
-                            string сокращениеПункта = FindAbbreviationInPriceList(пунктРазгрузки);
-
-                            // Проверяем наличие ИГК
-                            string игк = FindIGKInPriceList(пунктРазгрузки);
-                            if (!string.IsNullOrEmpty(игк))
-                            {
-                                excludedOrders.Add(gridRow);
-                                continue; // Пропускаем строки с ИГК
-                            }
-
-                            double цена = FindPriceInPriceList(пунктРазгрузки);
+                            int цена = Convert.ToInt32(gridRow.Cells[4].Value);
                             double сумма = количество * цена;
                             totalSum += сумма;
 
                             // Заполняем строку
                             sheet.Cells[currentRow, 1].Value = currentOrderNumber++;
-                            sheet.Cells[currentRow, 2].Value = $"Транспортные услуги ст. Саратовская-{сокращениеПункта} {датаОтгрузки}";
+                            sheet.Cells[currentRow, 2].Value = $"Транспортные услуги ст. Саратовская-{пунктРазгрузки} {датаОтгрузки}";
                             sheet.Cells[currentRow, 2, currentRow, 3].Merge = true;
                             sheet.Cells[currentRow, 4].Value = "рейс";
                             sheet.Cells[currentRow, 5].Value = количество;
@@ -1041,19 +1146,6 @@ namespace AccountManager
                         tempSheet.Cells[tempRange.Start.Row, tempRange.Start.Column, tempRange.End.Row, tempRange.End.Column]
                             .Copy(mergedSheet.Cells[offsetRow, tempRange.Start.Column]);
 
-
-                        // Вывод информации об исключенных адресах
-                        if (excludedOrders.Count > 0)
-                        {
-                            string excludedInfo = "Следующие адреса были исключены из основного счета из-за наличия ИГК, для них будет создан отдельный счет:\n";
-                            foreach (var row in excludedOrders)
-                            {
-                                string пунктРазгрузки = row.Cells[2].Value.ToString();
-                                excludedInfo += $"- {пунктРазгрузки}\n";
-                            }
-                            MessageBox.Show(excludedInfo, "Исключенные адреса", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }
-
                         // Сохраняем итоговый файл
                         SaveFileDialog saveFileDialog = new SaveFileDialog
                         {
@@ -1074,344 +1166,380 @@ namespace AccountManager
                 {
                     File.Delete(tempFilePath);
                 }
-
-                // Новый этап: обработка excludedOrders
-                while (excludedOrders.Count > 0)
-                {
-                    var currentRow = excludedOrders[0];
-                    string address = currentRow.Cells[2].Value?.ToString();
-                    double quantity = currentRow.Cells[3].Value != null && double.TryParse(currentRow.Cells[3].Value.ToString(), out double parsedQuantity)
-    ? parsedQuantity
-    : 0;
-                    string date = currentRow.Cells[1].Value?.ToString();
-                    string currentIGK = FindIGKInPriceList(address);
-                    string currentFooting = GetFootingFromTable(currentIGK, currentProductName);
-
-
-
-                    // Показ окна для изменения номера и даты
-                    using (Form dialog = new Form())
-                    {
-                        dialog.AutoSize = true;
-                        dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-                        dialog.Text = "Обработка заказа с ИГК";
-                        dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
-                        dialog.StartPosition = FormStartPosition.CenterScreen;
-
-                        // Основной контейнер
-                        TableLayoutPanel layoutPanel = new TableLayoutPanel
-                        {
-                            Dock = DockStyle.Fill,
-                            AutoSize = true,
-                            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                            ColumnCount = 2,
-                            Padding = new Padding(10)
-                        };
-                        layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-                        layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-
-                        // Метка с информацией об обрабатываемом заказе
-                        Label labelOrderInfo = new Label
-                        {
-                            Text = $"Перевозчик: {currentProductName}\nАдрес: {address}\nДата заказа: {date}\nКоличество рейсов: {quantity}",
-                            Font = new Font("Arial", 12, FontStyle.Bold),
-                            Dock = DockStyle.Fill,
-                            AutoSize = true,
-                            TextAlign = ContentAlignment.MiddleLeft
-                        };
-
-                        // Метка и TextBox для нового номера
-                        Label labelNumber = new Label
-                        {
-                            Text = "Счет №:",
-                            Font = new Font("Arial", 10),
-                            TextAlign = ContentAlignment.MiddleLeft,
-                            Anchor = AnchorStyles.Left
-                        };
-                        TextBox textBoxNumber = new TextBox
-                        {
-                            Width = 225,
-                            Anchor = AnchorStyles.Left
-                        };
-
-                        // Метка и TextBox для новой даты
-                        Label labelDate = new Label
-                        {
-                            Text = "От:",
-                            Font = new Font("Arial", 10),
-                            TextAlign = ContentAlignment.MiddleLeft,
-                            Anchor = AnchorStyles.Left
-                        };
-                        TextBox textBoxDate = new TextBox
-                        {
-                            Width = 225,
-                            Anchor = AnchorStyles.Left
-                        };
-
-                        // Кнопка "OK"
-                        Button buttonOk = new Button
-                        {
-                            Text = "OK",
-                            DialogResult = DialogResult.OK,
-                            Font = new Font("Arial", 10, FontStyle.Bold),
-                            AutoSize = true,
-                            Anchor = AnchorStyles.None
-                        };
-
-                        // Добавление элементов в таблицу
-                        layoutPanel.Controls.Add(labelOrderInfo, 0, 0);
-                        layoutPanel.SetColumnSpan(labelOrderInfo, 2); // Распространение на 2 столбца
-
-                        layoutPanel.Controls.Add(labelNumber, 0, 1);
-                        layoutPanel.Controls.Add(textBoxNumber, 1, 1);
-
-                        layoutPanel.Controls.Add(labelDate, 0, 2);
-                        layoutPanel.Controls.Add(textBoxDate, 1, 2);
-
-                        layoutPanel.Controls.Add(buttonOk, 0, 3);
-                        layoutPanel.SetColumnSpan(buttonOk, 2); // Распространение кнопки на 2 столбца
-                        layoutPanel.SetCellPosition(buttonOk, new TableLayoutPanelCellPosition(0, 3)); // Центрирование кнопки
-
-                        dialog.Controls.Add(layoutPanel);
-
-                        dialog.AcceptButton = buttonOk;
-
-
-                        if (dialog.ShowDialog() == DialogResult.OK)
-                        {
-                            // Получаем новые данные из TextBox
-                            string newNumber = textBoxNumber.Text;
-                            string newDate = textBoxDate.Text;
-
-                            // Шаг 1: Создание временного файла
-                            using (ExcelPackage package = new ExcelPackage())
-                            {
-                                var sheet = package.Workbook.Worksheets.Add("Счет");
-
-                                // Устанавливаем общий шрифт Arial
-                                sheet.Cells.Style.Font.Name = "Arial";
-
-                                // Заголовок счета
-                                sheet.Cells["A8:I8"].Merge = true;
-                                sheet.Cells["A8:I8"].Value = $"СЧЕТ № {newNumber} от {newDate}г";
-                                sheet.Cells["A8:I8"].Style.Font.Size = 14;
-                                sheet.Cells["A8:I8"].Style.Font.Bold = true;
-                                sheet.Cells["A8:I8"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                                sheet.Cells["A8:I8"].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-
-                                // Плательщик
-                                sheet.Cells["A9:I9"].Merge = true;
-                                sheet.Cells["A9:I9"].Value = "Плательщик: ООО «Масикс» ИНН 6164134558";
-                                sheet.Cells["A9:I9"].Style.Font.Size = 10;
-                                sheet.Cells["A9:I9"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // Основание
-                                sheet.Cells["A10:I10"].Merge = true;
-                                sheet.Cells["A10:I10"].Value = currentFooting;
-                                sheet.Cells["A10:I10"].Style.Font.Size = 10;
-                                sheet.Cells["A10:I10"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // ИГК
-                                sheet.Cells["A11:I11"].Merge = true;
-                                sheet.Cells["A11:I11"].Value = currentIGK;
-                                sheet.Cells["A11:I11"].Style.Font.Size = 10;
-                                sheet.Cells["A11:I11"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // Заголовки таблицы
-                                string[] headers = { "№", "Наименование товара", "", "Ед. Измерения", "Количество", "Цена", "", "Сумма", "" };
-                                for (int i = 0; i < headers.Length; i++)
-                                {
-                                    sheet.Cells[12, i + 1].Value = headers[i];
-                                    sheet.Cells[12, i + 1].Style.Font.Size = 10;
-                                    sheet.Cells[12, i + 1].Style.WrapText = true;
-                                    sheet.Cells[12, i + 1].Style.Border.BorderAround(ExcelBorderStyle.Thin);
-                                    sheet.Cells[12, i + 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                                    sheet.Cells[12, i + 1].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-                                }
-
-                                // Объединяем заголовки
-                                sheet.Cells["B12:C12"].Merge = true;
-                                sheet.Cells["F12:G12"].Merge = true;
-                                sheet.Cells["H12:I12"].Merge = true;
-
-                                int IGKcurrentRow = 13;
-                                double totalSum = 0;
-
-                                try
-                                {
-                                    string сокращениеПункта = FindAbbreviationInPriceList(address);
-                                    double цена = FindPriceInPriceList(address);
-
-                                    double сумма = quantity * цена;
-                                    totalSum += сумма;
-
-                                    // Добавление записи в реестр (если включено)
-                                    if (checkBox1.Checked) // Проверяем, включен ли CheckBox1
-                                    {
-                                        FillRegistry(currentProductName, newNumber, newDate, totalSum, currentFooting);
-                                    }
-
-                                    // Заполняем строку
-                                    sheet.Cells[IGKcurrentRow, 1].Value = 1;
-                                    sheet.Cells[IGKcurrentRow, 2].Value = $"Транспортные услуги ст. Саратовская-{сокращениеПункта} {date}";
-                                    sheet.Cells[IGKcurrentRow, 2, IGKcurrentRow, 3].Merge = true;
-                                    sheet.Cells[IGKcurrentRow, 4].Value = "рейс";
-                                    sheet.Cells[IGKcurrentRow, 5].Value = quantity;
-                                    sheet.Cells[IGKcurrentRow, 6].Value = $"{цена:0.00}";
-                                    sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Merge = true;
-                                    sheet.Cells[IGKcurrentRow, 8].Value = $"{сумма:0,0.00}";
-                                    sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Merge = true;
-
-                                    for (int col = 1; col <= 9; col++)
-                                    {
-                                        sheet.Cells[IGKcurrentRow, col].Style.Font.Size = 10;
-                                        sheet.Cells[IGKcurrentRow, col].Style.WrapText = true;
-                                        sheet.Cells[IGKcurrentRow, col].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-                                        sheet.Cells[IGKcurrentRow, col].Style.Border.BorderAround(ExcelBorderStyle.Thin);
-
-                                        if (col != 2)
-                                            sheet.Cells[IGKcurrentRow, col].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                                    }
-                                    sheet.Cells[IGKcurrentRow, 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                    IGKcurrentRow++;
-                                }
-                                catch (Exception exRow)
-                                {
-                                    MessageBox.Show($"Ошибка при обработке строки: {exRow.Message}", "Ошибка строки",
-                                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                }
-
-
-                                // Итоговые строки
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Value = "Итого:";
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Value = $"{totalSum:0,0.00}";
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-
-                                IGKcurrentRow++;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Value = "Без налога(НДС).";
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
-
-                                IGKcurrentRow++;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Value = "Всего к оплате:";
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 6, IGKcurrentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Merge = true;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Value = $"{totalSum:0,0.00}";
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                                sheet.Cells[IGKcurrentRow, 8, IGKcurrentRow, 9].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-
-                                // Общая информация о наименованиях и сумме
-                                IGKcurrentRow++;
-                                int totalItems = currentOrderNumber - 1; // Последний номер наименования из колонки A
-
-                                sheet.Cells[IGKcurrentRow, 1].Merge = false;
-                                sheet.Cells[IGKcurrentRow, 1].Value = $"Всего наименований {totalItems}, на сумму {Math.Floor(totalSum):N0}-{(totalSum % 1 * 100):00}";
-                                sheet.Cells[IGKcurrentRow, 1].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // Перевод суммы в текст
-                                IGKcurrentRow++;
-                                sheet.Cells[IGKcurrentRow, 1].Merge = false;
-                                sheet.Cells[IGKcurrentRow, 1].Value = ConvertSumToWords(totalSum);
-                                sheet.Cells[IGKcurrentRow, 1].Style.Font.Size = 10;
-                                sheet.Cells[IGKcurrentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // Отступ вниз на 3 строки
-                                IGKcurrentRow += 4;
-
-                                // Добавляем строки с подписями
-                                sheet.Cells[IGKcurrentRow, 1].Value = $"Руководитель предприятия____________________({currentProductName})";
-                                sheet.Cells[IGKcurrentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-                                IGKcurrentRow += 2;
-
-                                sheet.Cells[IGKcurrentRow, 1].Value = $"Главный бухгалтер __________________________ ({currentProductName})";
-                                sheet.Cells[IGKcurrentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
-
-                                // Настройка шрифта и размера текста для подписей
-                                sheet.Cells[IGKcurrentRow - 2, 1, IGKcurrentRow, 1].Style.Font.Size = 10;
-
-                                // Сохранение временного файла
-                                package.SaveAs(new FileInfo(tempFilePath));
-                            }
-
-                            // Шаг 2: Объединение временного файла с файлом шапки
-                            using (ExcelPackage headerPackage = new ExcelPackage(new FileInfo(headerFilePath)))
-                            using (ExcelPackage tempPackage = new ExcelPackage(new FileInfo(tempFilePath)))
-                            {
-                                var headerSheet = headerPackage.Workbook.Worksheets.FirstOrDefault();
-                                var tempSheet = tempPackage.Workbook.Worksheets.FirstOrDefault();
-
-                                if (headerSheet == null || tempSheet == null)
-                                {
-                                    throw new Exception("Ошибка чтения данных из временного файла или файла шапки.");
-                                }
-
-                                using (ExcelPackage mergedPackage = new ExcelPackage())
-                                {
-                                    var mergedSheet = mergedPackage.Workbook.Worksheets.Add("Итоговый отчет");
-
-                                    // Копируем шапку
-                                    var headerRange = headerSheet.Dimension;
-                                    headerSheet.Cells[headerRange.Start.Row, headerRange.Start.Column, headerRange.End.Row, headerRange.End.Column]
-                                        .Copy(mergedSheet.Cells[headerRange.Start.Row, headerRange.Start.Column]);
-
-                                    // Копируем временную таблицу под шапкой
-                                    var tempRange = tempSheet.Dimension;
-                                    int offsetRow = headerRange?.End.Row + 1 ?? 1;
-                                    tempSheet.Cells[tempRange.Start.Row, tempRange.Start.Column, tempRange.End.Row, tempRange.End.Column]
-                                        .Copy(mergedSheet.Cells[offsetRow, tempRange.Start.Column]);
-
-                                    // Сохраняем итоговый файл
-                                    SaveFileDialog saveFileDialog = new SaveFileDialog
-                                    {
-                                        Filter = "Excel Files|*.xlsx",
-                                        Title = "Сохранить итоговый файл"
-                                    };
-
-                                    if (saveFileDialog.ShowDialog() == DialogResult.OK)
-                                    {
-                                        mergedPackage.SaveAs(new FileInfo(saveFileDialog.FileName));
-                                        MessageBox.Show("Файл успешно создан!", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                                    }
-                                }
-                            }
-
-                            if (File.Exists(tempFilePath))
-                            {
-                                File.Delete(tempFilePath);
-                            }
-                        }
-                    }
-
-                    excludedOrders.RemoveAt(0);
-                }
             }
-
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
+            if (dataGridView2.Rows.Count != 0)
+            {
 
+                try
+                {
+
+                    foreach (DataGridViewRow gridRow in dataGridView2.Rows)
+                    {
+
+                        string пунктРазгрузки = gridRow.Cells[2].Value.ToString();
+                        string датаОтгрузки = gridRow.Cells[1].Value.ToString();
+                        int количество = Convert.ToInt32(gridRow.Cells[3].Value);
+                        string currentIGK = gridRow.Cells[5].Value.ToString();
+                        string IGKcurrentFooting = GetFootingFromTable(currentIGK, currentProductName);
+                        string полныйАдрес = FindAddressInPriceList(currentIGK);
+
+                        string invoiceNumber = string.Empty;
+                        string invoiceDate = string.Empty;
+
+                        using (Form dialog = new Form())
+                        {
+                            dialog.AutoSize = true;
+                            dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                            dialog.Text = "Обработка заказа с ИГК";
+                            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                            dialog.StartPosition = FormStartPosition.CenterScreen;
+
+                            // Основной контейнер
+                            TableLayoutPanel layoutPanel = new TableLayoutPanel
+                            {
+                                Dock = DockStyle.Fill,
+                                AutoSize = true,
+                                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                                ColumnCount = 2,
+                                Padding = new Padding(10)
+                            };
+                            layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                            layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+                            // Метка с информацией об обрабатываемом заказе
+                            Label labelOrderInfo = new Label
+                            {
+                                Text = $"Перевозчик: {currentProductName}\nАдрес: {полныйАдрес}\nИГК: {currentIGK}\nДата заказа: {датаОтгрузки}\nКоличество рейсов: {количество}",
+                                Font = new Font("Arial", 12, FontStyle.Bold),
+                                Dock = DockStyle.Fill,
+                                AutoSize = true,
+                                TextAlign = ContentAlignment.MiddleLeft
+                            };
+
+                            // Метка и TextBox для нового номера
+                            Label labelNumber = new Label
+                            {
+                                Text = "Счет №:",
+                                Font = new Font("Arial", 10),
+                                TextAlign = ContentAlignment.MiddleLeft,
+                                Anchor = AnchorStyles.Left
+                            };
+                            TextBox textBoxNumber = new TextBox
+                            {
+                                Width = 225,
+                                Anchor = AnchorStyles.Left
+                            };
+
+                            // Метка и TextBox для новой даты
+                            Label labelDate = new Label
+                            {
+                                Text = "От:",
+                                Font = new Font("Arial", 10),
+                                TextAlign = ContentAlignment.MiddleLeft,
+                                Anchor = AnchorStyles.Left
+                            };
+                            TextBox textBoxDate = new TextBox
+                            {
+                                Width = 225,
+                                Anchor = AnchorStyles.Left
+                            };
+
+                            // Кнопка "OK"
+                            Button buttonOk = new Button
+                            {
+                                Text = "OK",
+                                DialogResult = DialogResult.OK,
+                                Font = new Font("Arial", 10, FontStyle.Bold),
+                                AutoSize = true,
+                                Anchor = AnchorStyles.None
+                            };
+
+                            // Добавление элементов в таблицу
+                            layoutPanel.Controls.Add(labelOrderInfo, 0, 0);
+                            layoutPanel.SetColumnSpan(labelOrderInfo, 2); // Распространение на 2 столбца
+
+                            layoutPanel.Controls.Add(labelNumber, 0, 1);
+                            layoutPanel.Controls.Add(textBoxNumber, 1, 1);
+
+                            layoutPanel.Controls.Add(labelDate, 0, 2);
+                            layoutPanel.Controls.Add(textBoxDate, 1, 2);
+
+                            layoutPanel.Controls.Add(buttonOk, 0, 3);
+                            layoutPanel.SetColumnSpan(buttonOk, 2); // Распространение кнопки на 2 столбца
+                            layoutPanel.SetCellPosition(buttonOk, new TableLayoutPanelCellPosition(0, 3)); // Центрирование кнопки
+
+                            dialog.Controls.Add(layoutPanel);
+
+                            dialog.AcceptButton = buttonOk;
+
+                            if (dialog.ShowDialog() == DialogResult.OK)
+                            {
+                                invoiceNumber = textBoxNumber.Text.Trim();
+                                invoiceDate = textBoxDate.Text.Trim();
+
+                                // Валидация данных, если необходимо
+                                if (string.IsNullOrWhiteSpace(invoiceNumber) || string.IsNullOrWhiteSpace(invoiceDate))
+                                {
+                                    MessageBox.Show("Заполните все поля.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                    return; // Можно повторно вызвать диалог или просто выйти из метода
+                                }
+                            }
+                            else
+                            {
+                                // Если пользователь закрыл диалог, можно прервать обработку
+                                return;
+                            }
+                        }
+
+                        if (string.IsNullOrEmpty(headerFilePath))
+                        {
+                            MessageBox.Show("Не выбран файл для шапки. Укажите его с помощью соответствующей кнопки.",
+                                            "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
+
+                        string tempFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp.xlsx");
+
+                        int currentOrderNumber = 1; // Нумерация заказов
+
+                        // Шаг 1: Создание временного файла
+                        using (ExcelPackage package = new ExcelPackage())
+                        {
+                            var sheet = package.Workbook.Worksheets.Add("Счет");
+
+                            // Устанавливаем общий шрифт Arial
+                            sheet.Cells.Style.Font.Name = "Arial";
+
+                            // Костыль
+                            sheet.Cells["A8:I8"].Merge = false;
+                            sheet.Cells["A8:I8"].Value = $"";
+                            sheet.Cells["A8:I8"].Style.Font.Size = 14;
+                            sheet.Cells["A8:I8"].Style.Font.Bold = true;
+                            sheet.Cells["A8:I8"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                            sheet.Cells["A8:I8"].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+
+                            // Заголовок счета
+                            sheet.Cells["A9:I9"].Merge = true;
+                            sheet.Cells["A9:I9"].Value = $"СЧЕТ № {invoiceNumber} от {invoiceDate}г";
+                            sheet.Cells["A9:I9"].Style.Font.Size = 14;
+                            sheet.Cells["A9:I9"].Style.Font.Bold = true;
+                            sheet.Cells["A9:I9"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                            sheet.Cells["A9:I9"].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+
+                            // Плательщик
+                            sheet.Cells["A10:I10"].Merge = true;
+                            sheet.Cells["A10:I10"].Value = "Плательщик: ООО «Масикс» ИНН 6164134558";
+                            sheet.Cells["A10:I10"].Style.Font.Size = 10;
+                            sheet.Cells["A10:I10"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // Основание
+                            sheet.Cells["A11:I11"].Merge = true;
+                            sheet.Cells["A11:I11"].Value = IGKcurrentFooting;
+                            sheet.Cells["A11:I11"].Style.Font.Size = 10;
+                            sheet.Cells["A11:I11"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // ИГК
+                            sheet.Cells["A12:I12"].Merge = true;
+                            sheet.Cells["A12:I12"].Value = currentIGK;
+                            sheet.Cells["A12:I12"].Style.Font.Size = 10;
+                            sheet.Cells["A12:I12"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // Заголовки таблицы
+                            string[] headers = { "№", "Наименование товара", "", "Ед. Измерения", "Количество", "Цена", "", "Сумма", "" };
+                            for (int i = 0; i < headers.Length; i++)
+                            {
+                                sheet.Cells[13, i + 1].Value = headers[i];
+                                sheet.Cells[13, i + 1].Style.Font.Size = 10;
+                                sheet.Cells[13, i + 1].Style.WrapText = true;
+                                sheet.Cells[13, i + 1].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+                                sheet.Cells[13, i + 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                                sheet.Cells[13, i + 1].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                            }
+
+                            // Объединяем заголовки
+                            sheet.Cells["B13:C13"].Merge = true;
+                            sheet.Cells["F13:G13"].Merge = true;
+                            sheet.Cells["H13:I13"].Merge = true;
+
+                            int currentRow = 14;
+                            double totalSum = 0;
+                            string currentFooting = GetFootingFromTable(currentIGK, currentProductName);
+
+                            int цена = Convert.ToInt32(gridRow.Cells[4].Value);
+                            double сумма = количество * цена;
+                            totalSum += сумма;
+
+                            // Заполняем строку
+                            sheet.Cells[currentRow, 1].Value = currentOrderNumber++;
+                            sheet.Cells[currentRow, 2].Value = $"Транспортные услуги ст. Саратовская-{пунктРазгрузки} {датаОтгрузки}";
+                            sheet.Cells[currentRow, 2, currentRow, 3].Merge = true;
+                            sheet.Cells[currentRow, 4].Value = "рейс";
+                            sheet.Cells[currentRow, 5].Value = количество;
+                            sheet.Cells[currentRow, 6].Value = цена;
+                            sheet.Cells[currentRow, 6].Style.Numberformat.Format = "0.00";
+                            sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
+                            sheet.Cells[currentRow, 8].Value = сумма;
+                            sheet.Cells[currentRow, 8].Style.Numberformat.Format = "#,##0.00";
+                            sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
+
+                            for (int col = 1; col <= 9; col++)
+                            {
+                                sheet.Cells[currentRow, col].Style.Font.Size = 10;
+                                sheet.Cells[currentRow, col].Style.WrapText = true;
+                                sheet.Cells[currentRow, col].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                                sheet.Cells[currentRow, col].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+
+                                if (col != 2)
+                                    sheet.Cells[currentRow, col].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                            }
+                            sheet.Cells[currentRow, 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            currentRow++;
+
+                            //int tableBorder = currentRow - 1;
+
+                            // Добавление записи в реестр (если включено)
+                            if (checkBox1.Checked) // Проверяем, включен ли CheckBox1
+                            {
+                                FillRegistry(currentProductName, invoiceNumber, invoiceDate, totalSum, currentFooting);
+                            }
+
+                            // Итоговые строки
+                            sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Value = "Итого:";
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+
+                            sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Value = totalSum;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Numberformat.Format = "#,##0.00";
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+
+                            currentRow++;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Value = "Без налога(НДС).";
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+
+                            sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+
+                            currentRow++;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Merge = true;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Value = "Всего к оплате:";
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 6, currentRow, 7].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+
+                            sheet.Cells[currentRow, 8, currentRow, 9].Merge = true;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Value = totalSum;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Numberformat.Format = "#,##0.00";
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                            sheet.Cells[currentRow, 8, currentRow, 9].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+
+                            // Общая информация о наименованиях и сумме
+                            currentRow++;
+                            int totalItems = currentOrderNumber - 1; // Последний номер наименования из колонки A
+
+                            sheet.Cells[currentRow, 1].Merge = false;
+                            sheet.Cells[currentRow, 1].Value = $"Всего наименований {totalItems}, на сумму {Math.Floor(totalSum):N0}-{(totalSum % 1 * 100):00}";
+                            sheet.Cells[currentRow, 1].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // Перевод суммы в текст
+                            currentRow++;
+                            sheet.Cells[currentRow, 1].Merge = false;
+                            sheet.Cells[currentRow, 1].Value = ConvertSumToWords(totalSum);
+                            sheet.Cells[currentRow, 1].Style.Font.Size = 10;
+                            sheet.Cells[currentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // Отступ вниз на 3 строки
+                            currentRow += 4;
+
+                            // Добавляем строки с подписями
+                            sheet.Cells[currentRow, 1].Value = $"Руководитель предприятия____________________({currentProductName})";
+                            sheet.Cells[currentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                            currentRow += 2;
+
+                            sheet.Cells[currentRow, 1].Value = $"Главный бухгалтер __________________________ ({currentProductName})";
+                            sheet.Cells[currentRow, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                            // Настройка шрифта и размера текста для подписей
+                            sheet.Cells[currentRow - 2, 1, currentRow, 1].Style.Font.Size = 10;
+
+                            // Сохранение временного файла
+                            package.SaveAs(new FileInfo(tempFilePath));
+                        }
+
+                        // Шаг 2: Объединение временного файла с файлом шапки
+                        using (ExcelPackage headerPackage = new ExcelPackage(new FileInfo(headerFilePath)))
+                        using (ExcelPackage tempPackage = new ExcelPackage(new FileInfo(tempFilePath)))
+                        {
+                            var headerSheet = headerPackage.Workbook.Worksheets.FirstOrDefault();
+                            var tempSheet = tempPackage.Workbook.Worksheets.FirstOrDefault();
+
+                            if (headerSheet == null || tempSheet == null)
+                            {
+                                throw new Exception("Ошибка чтения данных из временного файла или файла шапки.");
+                            }
+
+                            using (ExcelPackage mergedPackage = new ExcelPackage())
+                            {
+                                var mergedSheet = mergedPackage.Workbook.Worksheets.Add("Итоговый отчет");
+
+                                // Копируем шапку
+                                var headerRange = headerSheet.Dimension;
+                                headerSheet.Cells[headerRange.Start.Row, headerRange.Start.Column, headerRange.End.Row, headerRange.End.Column]
+                                    .Copy(mergedSheet.Cells[headerRange.Start.Row, headerRange.Start.Column]);
+
+                                // Копируем временную таблицу под шапкой
+                                var tempRange = tempSheet.Dimension;
+                                int offsetRow = headerRange?.End.Row + 1 ?? 1;
+                                tempSheet.Cells[tempRange.Start.Row, tempRange.Start.Column, tempRange.End.Row, tempRange.End.Column]
+                                    .Copy(mergedSheet.Cells[offsetRow, tempRange.Start.Column]);
+
+                                // Сохраняем итоговый файл
+                                SaveFileDialog saveFileDialog = new SaveFileDialog
+                                {
+                                    Filter = "Excel Files|*.xlsx",
+                                    Title = "Сохранить итоговый файл"
+                                };
+
+                                if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                                {
+                                    mergedPackage.SaveAs(new FileInfo(saveFileDialog.FileName));
+                                    MessageBox.Show("Файл успешно создан!", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                }
+                            }
+                        }
+
+                        // Удаляем временный файл
+                        if (File.Exists(tempFilePath))
+                        {
+                            File.Delete(tempFilePath);
+                        }
+                    }
+                }
+
+                catch (NullReferenceException)
+                {                   
+                }
+
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
 
         }
 
@@ -1582,7 +1710,6 @@ namespace AccountManager
 
             aboutDialog.ShowDialog();
         }
-
 
     }
 }
