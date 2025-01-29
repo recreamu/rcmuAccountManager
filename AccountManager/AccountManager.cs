@@ -167,7 +167,7 @@ namespace AccountManager
                     string shippingDate = dataGridView1.Rows[row].Cells[4].Value?.ToString();  // Дата отгрузки
                     string unloadPoint = dataGridView1.Rows[row].Cells[13].Value?.ToString(); // Пункт разгрузки
                     string routeValueText = dataGridView1.Rows[row].Cells[14].Value?.ToString(); // Рейсы
-                    string IGK = FindIGKInPriceList(unloadPoint); 
+                    string IGK = FindIGKInPriceList(unloadPoint);
 
                     if (routeValueText == "")
                     {
@@ -1532,7 +1532,7 @@ namespace AccountManager
                 }
 
                 catch (NullReferenceException)
-                {                   
+                {
                 }
 
                 catch (Exception ex)
@@ -1618,7 +1618,9 @@ namespace AccountManager
                     sheet.Cells[currentRow, 2].Value = currentProductName;
                     sheet.Cells[currentRow, 3].Value = $"№ {accnum} от {accdata}";
                     sheet.Cells[currentRow, 4].Value = totalsum;
+                    sheet.Cells[currentRow, 4].Style.Numberformat.Format = "#,##0.00";
                     sheet.Cells[currentRow, 5].Value = totalsum;
+                    sheet.Cells[currentRow, 5].Style.Numberformat.Format = "#,##0.00";
                     sheet.Cells[currentRow, 6].Value = "перевозка гб 4.3";
                     sheet.Cells[currentRow, 7].Value = currentFooting;
 
@@ -1711,6 +1713,10 @@ namespace AccountManager
             aboutDialog.ShowDialog();
         }
 
+        private void AccountManager_Load(object sender, EventArgs e)
+        {
+
+        }
     }
 }
 

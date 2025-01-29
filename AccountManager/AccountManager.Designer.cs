@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(AccountManager));
             button1 = new Button();
             button2 = new Button();
             button3 = new Button();
@@ -385,8 +386,10 @@
             Controls.Add(button2);
             Controls.Add(button1);
             Controls.Add(dataGridView1);
+            Icon = (Icon)resources.GetObject("$this.Icon");
             Name = "AccountManager";
             Text = "Rcmu Account Manager v.1.2";
+            Load += AccountManager_Load;
             ((System.ComponentModel.ISupportInitialize)dataGridView1).EndInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView4).EndInit();
             ((System.ComponentModel.ISupportInitialize)dataGridView2).EndInit();
